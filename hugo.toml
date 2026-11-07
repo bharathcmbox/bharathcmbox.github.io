@@ -1,4 +1,19 @@
-baseURL = 'https://example.org/'
-locale = 'en-us'
-title = 'My New Hugo Project'
+baseURL = 'https://bharathcmbox.github.io/'
+languageCode = 'en-us'
+title = 'Bharath Chandrasekhar'
 theme = 'PaperMod'
+
+[params]
+  ShowReadingTime = true
+  ShowToc = true
+  ShowCodeCopyButtons = true
+
+[menu]
+  [[menu.main]]
+    name = 'Posts'
+    url = '/posts/'
+    weight = 1
+  [[menu.main]]
+    name = 'Tags'
+    url = '/tags/'
+    weight = 2
