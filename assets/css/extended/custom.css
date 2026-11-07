@@ -1,0 +1,11 @@
+/* Post headings: PaperMod's default is 40px, too large for long titles. */
+.post-title {
+    font-size: 30px;
+    line-height: 1.25;
+}
+
+@media screen and (max-width: 768px) {
+    .post-title {
+        font-size: 24px;
+    }
+}
