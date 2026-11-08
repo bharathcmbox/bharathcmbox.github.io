@@ -1,3 +1,6 @@
 public/
 resources/_gen/
 .hugo_build.lock
+
+# Local research notes, not published or committed
+notes/
