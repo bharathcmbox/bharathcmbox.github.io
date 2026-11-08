@@ -1,5 +1,5 @@
 ---
-title: "Sleeper notes: securing agent memory, dreaming and session-start injection"
+title: "Securing Agentic Memory"
 subtitle: "What a security engineer sees in Anthropic's \"The components of agent memory\""
 date: 2026-11-07
 draft: true

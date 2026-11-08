@@ -1,3 +1,4 @@
+{{- /* Loaded here, not in extend_footer: PaperMod caches the footer per layout, so a per-page flag there is unreliable. */ -}}
 {{ if .Store.Get "hasMermaid" }}
 <script type="module">
   import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.esm.min.mjs';
