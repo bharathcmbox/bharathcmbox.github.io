@@ -1,6 +1,6 @@
 ---
 title: "Sleeper notes: securing agent memory, dreaming and session-start injection"
-subtitle: "A security deep dive building on Anthropic's \"The components of agent memory\""
+subtitle: "What a security engineer sees in Anthropic's \"The components of agent memory\""
 date: 2026-11-07
 draft: true
 description: "Agent memory turns a one-time prompt injection into a persistent one, and dreaming can promote it into every future session. A practical, tool-by-tool guide to securing the memory lifecycle: what to build at write time, storage, consolidation, injection and deletion, and what doesn't work."
@@ -45,7 +45,7 @@ The details matter for security, so here they are for Anthropic's four memory su
 | Surface | Where memory lives | How it reaches the model | Controls the docs give you |
 |---|---|---|---|
 | **Claude Code auto memory** | Your machine: `~/.claude/projects/<project>/memory/` | First 200 lines or 25 KB of `MEMORY.md` loaded **every session**; topic files read on demand | Plain markdown you can edit; disable with `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` |
-| **Claude Code `CLAUDE.md`** | Repo, user home, or org-managed path | Loaded at launch as a user message, not the system prompt | Managed org file users can't exclude; docs say enforce rules with hooks or `permissions.deny`, not memory |
+| **Claude Code `CLAUDE.md`** | Repo, user home, or org-managed path | Loaded at launch as a user message, not the system prompt | Org-managed file that loads by default; docs say enforce rules with hooks or `permissions.deny`, not memory |
 | **Memory tool (API)** | Your application, client-side | Claude is told to view its memory directory before anything else, then reads files through tool calls | You implement storage; docs require path-traversal checks |
 | **Managed Agents memory stores** | Anthropic-hosted, scoped to a workspace | Mounted at `/mnt/memory/<slug>/`; a description of each mount goes in the system prompt | `read_only` mounts, immutable versions for 30 days, a redaction endpoint |
 | **Managed Agents dreams** | Anthropic-hosted | `POST /v1/dreams` reads one store plus 1–100 session transcripts and writes a **new** output store | Input store never modified; you choose whether to attach the output |
@@ -69,6 +69,15 @@ gets lost at the write.
 **Promotion.** Dreaming adds a step no earlier system had: it can move content *up* the hierarchy,
 from a searchable note nobody reads to the always-loaded top layer. For text, that's privilege
 escalation. A line that once had to be found by search is now in front of the model on every turn.
+
+Where that top layer actually exists depends on the surface. In Claude Code it's concrete: `CLAUDE.md` and
+the start of `MEMORY.md` load into every session. In Managed Agents, only each store's *description* goes
+into the system prompt and the files are read on demand, so an always-loaded layer there is something you
+build yourself. Either way, the argument holds for whatever you load by default.
+
+One more carrier is easy to miss: **compaction**. Anthropic's hierarchy excludes compaction summaries from
+memory, but an injected instruction that survives summarization stays in the session after the original
+text, and any marker of where it came from, has been compacted away.
 
 ```mermaid
 %%{init: {"themeVariables": {"fontSize": "13px"}}}%%
@@ -106,9 +115,8 @@ This isn't hypothetical. The pattern has been shown repeatedly, and is now seen 
   60 days. Memory poisoning has become marketing tooling.
   [Microsoft Security blog](https://www.microsoft.com/en-us/security/blog/2026/02/10/ai-recommendation-poisoning/).
 
-The standards bodies have caught up. OWASP's Top 10 for Agentic Applications lists **Memory & Context
-Poisoning (ASI06)**. MITRE ATLAS has **AI Agent Context Poisoning (AML.T0080)**, with a memory
-sub-technique.
+The standards bodies have caught up. OWASP's Top 10 for Agentic Applications lists memory and context
+poisoning, and MITRE ATLAS has a technique for AI agent context poisoning, with a memory sub-technique.
 
 ### What dreaming specifically adds
 
@@ -119,7 +127,7 @@ Reading Anthropic's description with an attacker's eye:
 - **"Check claims against the sources" doesn't help here.** Validating notes against transcripts is a
   good defense against *drift*. Against poisoning, the transcript is where the attacker's text is.
   The check confirms the poison is "in the source."
-- **"Find common patterns across sessions" amplifies repetition.** An attacker who can get the same
+- **Searching "across many sessions to find common patterns" amplifies repetition.** An attacker who can get the same
   instruction into several sessions (a common footer, a shared README) makes it look like a pattern
   worth keeping.
 - **It runs offline.** Nobody is watching the dream as it happens. Its output is the most trusted memory
@@ -151,6 +159,7 @@ run a data platform, but they're new to most agent teams:
 | Cross-user contamination | Shared store, or namespace chosen by the model | One user's poison reaches others; data leaks across tenants | Server-enforced namespaces, separate stores by trust level |
 | Path traversal in a memory handler | Model-chosen file paths | Reads or writes outside memory: secrets, config | Canonical path checks |
 | Secret or PII persistence | Agent remembers what it saw | Data lives indefinitely, then gets injected back into context | Secret and PII scanning on write, TTLs, redaction |
+| Memory flooding | Many or large writes past the load cap | Legitimate notes silently stop loading; a dream merges or drops real facts under the noise | Size and write-rate limits, alert on churn in the always-loaded index |
 | Silent tampering | Anyone with write access to the store | Behavior changes with no record of why | Versioning, audit log, diffs |
 | Unfulfillable deletion | Derived memories, dream outputs | Regulatory exposure | Lineage from memory back to source session |
 
@@ -173,15 +182,28 @@ This is where you get the most for the least effort, because you own the code th
 With the Claude memory tool, you literally implement `create` and `str_replace`. With other frameworks,
 wrap their write API.
 
-**1. Track taint at the session level.** Your harness already knows when the agent touched untrusted
-content: it ran a web fetch, read an email, opened a file from an external pull request. Set a `tainted`
-flag on the session when that happens. In Claude Code, a `PostToolUse` hook on the fetching tools can set it.
-This is the single most valuable signal you have, and it doesn't depend on any classifier being right.
-It's also the defense Rehberger recommends against delayed tool invocation: once the context holds
-untrusted content, sensitive actions (memory writes among them) need confirmation.
+**1. Track taint by source.** Your harness already knows when the agent touched untrusted content: it ran
+a web fetch, read an email, opened a file from an external pull request. Record that on the session. In
+Claude Code, a `PostToolUse` hook on the fetching tools can do it. This is the most valuable signal you
+have, and it doesn't depend on any classifier being right. It's also the defense Rehberger recommends
+against delayed tool invocation: once the context holds untrusted content, sensitive actions (memory writes
+among them) need confirmation.
+
+The naive version collapses in practice, though. A coding agent reads something untrusted in almost every
+session: repository files, docs, web pages. Mark the whole session tainted on any of it, quarantine every
+write, and within a week the quarantine is the real store and someone is approving it without reading.
+So **classify sources**:
+
+- **High risk:** web fetches, inbound email, files from forks or external pull requests, anything a third
+  party controls.
+- **Lower risk:** the user's own messages, and the repository you're working in at a reviewed commit.
+
+Gate writes on the high-risk classes the session has read *before* the write. Keep full-session taint
+for surfaces where nearly everything is high risk anyway, like an email or browsing agent, and design the
+review queue to be small on purpose.
 
 **2. Record provenance on every memory.** Store the session ID, the time, the writer (user, agent, dream
-job), and the taint flag alongside the content. You'll need this for deletion, incident response and the
+job), and the untrusted source classes the session had read, alongside the content. You'll need this for deletion, incident response and the
 read-side labeling below. It costs a few lines of frontmatter.
 
 **3. Scan for secrets and personal data before persisting.** These tools are mature and run in-process:
@@ -207,65 +229,93 @@ stronger guarantees you should strip it in your handler. "Usually" is the reason
   filter that fails open, or ships in log-only mode by default, isn't the control you think it is.
 
 Be clear-eyed about classifiers. [*The Attacker Moves Second*](https://arxiv.org/abs/2510.09023) (Nasr, Carlini,
-Tramèr et al.) broke all 12 defenses it tested with adaptive attacks, and the MINJA follow-up work reports
-moderation-style filters largely miss its records. A classifier will catch the crude and the copy-pasted, which
+Tramèr et al.) bypassed all 12 defenses it tested with adaptive attacks, most at over 90% success. The MINJA
+paper's own evaluation (section 5.4) is more mixed: a detector tuned for its prompts caught most poisoned
+records in one setting and none in others, and general-purpose detection prompts raised many false
+positives. A classifier will catch the crude and the copy-pasted, which
 is most real-world traffic. It will not stop a determined attacker. Use it to raise an alert and quarantine,
 never as the only thing between a payload and the top layer.
 
-**5. Quarantine instead of rejecting.** If a write comes from a tainted session or trips a scanner, put it
-in a pending area instead of dropping it silently. The agent keeps working, a human or a policy can promote
-it later, and you get a dataset of real attempts.
+**5. Quarantine instead of rejecting, and don't tell the model.** If a write follows a high-risk read or
+trips a scanner, put it in a pending area instead of dropping it. The agent keeps working, a human or a
+policy can promote it later, and you get a dataset of real attempts. Reply to the model exactly as you would
+for a normal save, and alert the operator instead. A "pending review" reply tells an attacker the filter
+tripped and invites a rephrase on the next turn. The trade-off: the agent may count on a memory that never
+loads. That's usually the right side to err on.
+
+**6. Cap size and write rate.** Anthropic's memory tool docs recommend file size limits. Add a per-session
+write limit too. Both bound how much an attacker can plant, and they make flooding the always-loaded layer
+visible.
 
 Here's what that looks like in a memory-tool handler. The scanner helpers wrap the tools above. The parts that
-matter are the path check, the identity source, and the decision logic.
+matter are the path check, the identity source, scanning the whole resulting file, and the decision logic.
 
 ```python
+import re
 from pathlib import Path
 from urllib.parse import unquote
 
-ROOT = Path("/srv/agent-memory")
+ROOT = Path("/srv/agent-memory").resolve()
+USER_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+HIGH_RISK = {"web", "email", "external_pr"}   # source classes the harness records
+MAX_BYTES, MAX_WRITES = 16_000, 20             # per file, per session
 
 def resolve(user_id: str, virtual_path: str) -> Path:
     """Map /memories/... onto this user's directory, or refuse."""
-    base = (ROOT / user_id).resolve()
-    rel = unquote(virtual_path).removeprefix("/memories").lstrip("/")
-    target = (base / rel).resolve()
-    # A real containment check, not a string-prefix check.
+    # The tenant ID builds a path too. Allowlist it, or "alice/../bob" escapes.
+    if not USER_ID.fullmatch(user_id):
+        raise PermissionError("invalid user id")
+    base = ROOT / user_id
+    # Decode first. Anthropic's docs warn about %2e%2e%2f, and a proxy or
+    # storage SDK further down might decode even if this code doesn't.
+    path = unquote(virtual_path)
+    if path != "/memories" and not path.startswith("/memories/"):
+        raise PermissionError(f"not a memory path: {virtual_path}")
+    target = (base / path.removeprefix("/memories").lstrip("/")).resolve()
+    # A real containment check, not a string-prefix check:
     # "/srv/agent-memory/alice" is a string prefix of "/srv/agent-memory/alice-evil".
     if not target.is_relative_to(base):
         raise PermissionError(f"path escapes memory root: {virtual_path}")
     return target
 
-def handle_create(session, virtual_path: str, text: str) -> str:
+def handle_write(session, virtual_path: str, apply_edit) -> str:
+    """create, str_replace and insert all go through here."""
     # user_id comes from the authenticated session, never from the model's arguments.
     path = resolve(session.user_id, virtual_path)
+    result = apply_edit(read_current(path))   # the whole file as it would be after this edit
+    if len(result.encode()) > MAX_BYTES or session.memory_writes >= MAX_WRITES:
+        raise PermissionError("memory limit reached")
+    session.memory_writes += 1
 
+    # Scan the resulting file, not the edit. A payload split across several
+    # small str_replace calls passes any per-edit scan.
     findings = []
-    if find_secrets(text):            # detect-secrets / gitleaks
+    if find_secrets(result):            # detect-secrets / gitleaks
         findings.append("secret")
-    if find_pii(text):                # Presidio, score threshold tuned for your data
+    if find_pii(result):                # Presidio, threshold tuned for your data
         findings.append("pii")
-    if injection_score(text) > 0.8:   # Prompt Guard 2, chunked to 512 tokens
+    if injection_score(result) > 0.8:   # Prompt Guard 2, chunked to 512 tokens
         findings.append("injection")
 
+    risky_sources = session.untrusted_sources & HIGH_RISK   # read before this write
     provenance = {
         "session": session.id,
         "writer": "agent",
-        "tainted": session.tainted,   # set by the harness when untrusted content was read
+        "untrusted_sources": sorted(risky_sources),
         "written_at": now_iso(),
     }
 
-    if findings or session.tainted:
-        quarantine(session.user_id, virtual_path, text, provenance, findings)
-        return "Noted. This memory is pending review and won't load until approved."
-
-    write_with_frontmatter(path, text, provenance)
+    if findings or risky_sources:
+        quarantine(session.user_id, virtual_path, result, provenance, findings)
+        alert_operator(session, virtual_path, findings, risky_sources)
+    else:
+        write_with_frontmatter(path, result, provenance)
+    # Same reply either way, so the model can't tell a filter tripped.
     return f"Saved {virtual_path}"
 ```
 
 The string-prefix bug in the comment isn't theoretical. CVE-2026-34451 was exactly that, in a released
-version of an SDK memory-tool helper. Anthropic's docs also warn about URL-encoded traversal (`%2e%2e%2f`),
-which is why the path is decoded before it's resolved.
+version of an SDK memory-tool helper.
 
 ### Stage 2: Storage
 
@@ -305,13 +355,20 @@ client-side memory (the memory tool, Claude Code), it's your disk and your encry
 
 Treat a dream as what it is: **a privileged batch job that reads untrusted input and writes your most
 trusted data.** In Rule of Two terms it has (A) untrusted transcripts and (C) a write to trusted memory,
-so remove (B). Don't give the dream job network access or tools it doesn't need, and put a gate on its output.
+so (B) has to go. What that means depends on who runs it:
+
+- **Your own consolidation** (Letta's sleep-time agents, a nightly job): you control its runtime, so give
+  it no network access, no credentials and no tools beyond reading the inputs and writing the output.
+- **Managed Agents dreams:** Anthropic runs the pipeline, so there's no runtime to lock down. Your controls
+  are which inputs you pass in and what you do with the output.
+
+Either way, put a gate on the output.
 
 The good news is that Anthropic designed the gate in. A Managed Agents dream "never modifies" its input
 store and writes a new one, so "you can review the output and discard it if you don't like the result."
 The docs don't provide a diff or an approval step, so build them:
 
-1. **Choose the inputs deliberately.** You pass the session IDs. Leave out tainted sessions, or dream over
+1. **Choose the inputs deliberately.** You pass the session IDs. Leave out sessions that read high-risk sources, or dream over
    them separately into a store that stays in the working tier.
 2. **Ask for provenance in the instructions.** Have the dream cite the source session for each fact it
    writes. The docs say instructions drive a synthesis pass, so this is a request, not a guarantee; treat
@@ -319,10 +376,12 @@ The docs don't provide a diff or an approval step, so build them:
 3. **Diff the output against the input.** List the memories in both stores through the API and compare
    them. Most changes will be merges and rewording.
 4. **Run the write-path scanners on everything new or changed.** Same secrets, PII and injection checks.
-5. **Flag the semantic tells of an instruction.** New imperatives ("always," "never," "ignore," "before
-   doing anything"), new URLs or hostnames, tool names, and anything mentioning credentials, approvals or
-   other users. A simple regex pass catches a lot here, because legitimate consolidated *facts* rarely
-   read like commands.
+5. **Flag the instructions that matter, not all instructions.** Legitimate memory is full of
+   imperatives: "always use pnpm," "never commit to main." Anthropic's own dream example is about
+   coding-style preferences. A regex on "always" or "never" would fire on most of it and teach reviewers
+   to ignore the flag. Instead, flag new or changed text that refers to URLs or hostnames, tool names,
+   credentials, approvals, other users, or the agent's own safety behavior ("skip the confirmation,"
+   "don't mention this"). Style rules are normal; a rule about where to send data isn't.
 6. **Require a human for promotions.** Anything entering the injected top layer gets reviewed. That set is
    small by design (Anthropic stresses the top layer "has to stay relatively small"), so reviewing it is
    realistic, unlike reviewing every write.
@@ -339,21 +398,30 @@ like code.**
 
 - **Repository `CLAUDE.md` is code.** Put it under `CODEOWNERS`, and review changes in pull requests.
   Remember that a pull request from a fork can change it, and an agent checking out that branch loads it.
-  Use the org-managed `CLAUDE.md` for rules that must always load; users can't exclude it.
+  Use the org-managed `CLAUDE.md` for guidance that should load by default, but don't treat it as
+  enforcement: a session started with `CLAUDE.md` loading turned off skips it too. Enforce with managed
+  settings and permissions.
 - **Keep the always-loaded layer small and reviewed.** Claude Code loads 200 lines or 25 KB of
   `MEMORY.md`. That's a lot of room for a payload. If you run agents on untrusted repositories or content,
   turn auto memory off (`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`).
+- **Know where memory is coming from.** Claude Code lets a project's settings choose the auto memory
+  directory, once you trust the folder. A hostile repository can point it at a directory the repository
+  ships. Don't grant workspace trust to repositories you don't control, and review `.claude/settings.json`
+  changes in the ones you do.
 - **Label memory as data when you inject it.** Wrap working-tier memories in a clear delimiter with their
-  provenance ("unverified note from session X, written after reading external content"). Microsoft's
-  [spotlighting](https://arxiv.org/abs/2403.14720) research found that marking untrusted text this way cut
-  attack success from over 50% to under 2% on the models it tested. It's probabilistic, but it's cheap.
+  provenance ("unverified note from session X, written after reading external content"), and datamark the
+  content itself, for example by interleaving a marker character through it. In Microsoft's
+  [spotlighting](https://arxiv.org/abs/2403.14720) research, datamarking and encoding cut attack success from
+  over 50% to under 2% on the models tested; plain delimiters alone did much less. It's probabilistic, but
+  it's cheap.
 - **Scan on read too.** Classifiers improve, and old poison sits in stores written before you had a scanner.
   Scanning at injection time also catches anything that got into storage some other way.
-- **Log what was loaded.** Claude Code's `InstructionsLoaded` hook and `/context` show which memory and
-  instruction files went into a session. When behavior changes, the first question is "what was in its
+- **Log what was loaded.** Claude Code's `InstructionsLoaded` hook fires for `CLAUDE.md` and rules files,
+  and `/context` lists those and auto memory files together. Capture both. When behavior changes, the first question is "what was in its
   context," and you want that answer from a log, not a guess.
 - **Raise the bar for sensitive actions when tainted memory is loaded.** If a session loaded working-tier
-  memory written in a tainted session, treat that session as tainted: confirm sensitive tool calls, tighten egress.
+  memory written after a high-risk read, treat that session as tainted too: confirm sensitive tool calls,
+  tighten egress.
 
 ### Stage 5: Deletion and retention
 
@@ -368,7 +436,13 @@ like code.**
 
 ### Detection and response
 
-Assume a poisoned memory will get through. When it does:
+Assume a poisoned memory will get through.
+
+**Plant canaries first.** Put a few decoy memories in each store, each containing a unique URL or a
+credential-shaped token that nothing legitimate ever uses. Alert on any request to that URL or any use of
+that token. It's cheap, and it's the one signal that proves memory was read *and acted on* by a poisoned path.
+
+When one fires, or a poisoned memory turns up some other way:
 
 1. **Find it.** Search the version history for the content, and the provenance for the session that wrote it.
 2. **Scope it.** Which sessions loaded it? Which dreams consumed it, and which output stores did they produce?
@@ -383,7 +457,7 @@ Assume a poisoned memory will get through. When it does:
 - **Classifiers alone.** Covered above. They're a tripwire.
 - **Signing memories.** Several research systems sign or hash-chain memory writes. That proves *who* wrote a
   memory, not that it's benign. A poisoned note written through your legitimate agent is signed by your
-  legitimate agent. One study found spoofed tool outputs got past signed memory anyway. Signing helps with
+  legitimate agent. Signing helps with
   tampering at rest, which versioning already covers.
 - **Asking the model to be careful.** Instructions in memory are advisory, by Anthropic's own description.
   An instruction not to trust memory is itself just memory.
@@ -399,25 +473,12 @@ Assume a poisoned memory will get through. When it does:
 
 Ordered by effort, for a team running agents with memory in production:
 
-**This week**
-- Fix path handling in any memory handler you wrote: decode, resolve, containment check.
-- Make sure the namespace or user ID comes from authentication, never from the model.
-- Turn on versioning, or put file-based memory in git.
-- Add secret scanning on memory writes.
-- Turn off auto memory for agents that work on untrusted repositories or content.
-
-**This month**
-- Add session taint tracking in the harness, and quarantine writes from tainted sessions.
-- Record provenance on every memory.
-- Split stores into curated (read-only, injected) and working (agent-writable, retrieved, labeled).
-- Put a diff, scan and approve gate on dream output; require a human for promotions.
-- Add PII scanning and expiry.
-
-**This quarter**
-- Add an injection classifier on write and read, wired to alerts, not just blocking.
-- Log exactly what memory loaded into each session.
-- Build the lineage query you'll need for deletion requests and incidents, and run a drill: plant a
-  memory, see whether you catch it, and time how long it takes to find every session that loaded it.
+- **This week:** path and user-ID checks, server-side namespaces, versioning, secret scanning, size limits,
+  auto memory off for untrusted repositories.
+- **This month:** source-based taint and quarantine, provenance, curated vs. working stores, a gate on dream
+  output, PII scanning, expiry, canaries.
+- **This quarter:** an injection classifier on write and read, logging what loaded, a lineage query, and a
+  drill: plant a memory and time how long it takes to find every session that loaded it.
 
 ## Closing
 
