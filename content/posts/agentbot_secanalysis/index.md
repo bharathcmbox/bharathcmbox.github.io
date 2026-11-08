@@ -1,14 +1,13 @@
 ---
 title: "Never trust the agent. How Axiom, Muse, and OpenShell draw the line"
-subtitle: "Part 1: Axiom, Meta's Muse and NVIDIA OpenShell, compared"
+subtitle: "Part 1 of 2: the short version"
 date: 2026-11-07
 draft: true
 description: "A short comparison, for security leaders, of three agent security designs: my learning project Axiom, Meta's Muse personal agent, and NVIDIA's OpenShell with Sentry. What each assumes, where each draws the boundary, and what each leaves open."
 tags: [ai-agents, security, threat-modeling, agent-harness, governance]
 ---
 
-> **Part 1 of 2.** This is the short version: one table and the takeaways. Part 2 will go system by
-> system in detail. A disclosure up front: [Axiom](https://github.com/bharathcmbox/axiom) is my own
+> One table and the takeaways here; part 2 goes system by system in detail. A disclosure up front: [Axiom](https://github.com/bharathcmbox/axiom) is my own
 > learning project, not a product, and it has run only a handful of real tasks. Muse and OpenShell
 > are described from their public documentation as of November 2026.
 
