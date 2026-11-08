@@ -319,7 +319,7 @@
     const scenarioButtons = {};
     for (const [id, s] of Object.entries(SCENARIOS)) {
       scenarioButtons[id] = h('button', { type: 'button', class: 'sim-chip', role: 'radio', text: s.tab }, scenarioBar);
-      scenarioButtons[id].addEventListener('click', () => { state.sc = id; render(); });
+      scenarioButtons[id].addEventListener('click', () => { state.sc = id; state.i = 0; render(); });
     }
     const blurb = h('p', { class: 'sim-blurb' }, root);
 
@@ -327,7 +327,7 @@
     const tabButtons = {};
     for (const setup of SETUPS) {
       tabButtons[setup.id] = h('button', { type: 'button', class: 'sim-tab', role: 'tab', text: setup.tab }, tabs);
-      tabButtons[setup.id].addEventListener('click', () => { state.setup = setup.id; render(); });
+      tabButtons[setup.id].addEventListener('click', () => { state.setup = setup.id; state.i = 0; render(); });
     }
 
     // Navigation sits above the diagram so the buttons never move as step text changes length.

@@ -9,7 +9,8 @@ build:
 ---
 
 The same attack, run against four agent setups. Pick a setup, then step through with **Next** or the
-arrow keys. The step stays the same when you switch setups, so you can compare one moment across all four.
+arrow keys. Switching the setup or the scenario starts again from step 1, and the progress bar under the
+figure jumps straight to any step.
 
 > This is an illustrative simulation based on a code review of
 > [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness/tree/fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159)
