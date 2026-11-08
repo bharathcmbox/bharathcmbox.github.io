@@ -26,29 +26,29 @@ terminal UI. It's written mostly in TypeScript, with a small C launcher for Linu
 
 **Where it's better than most harnesses.** Its engineering discipline is unusually high:
 
-- **Everything the model sees is reconstructable from an append-only log.** Crash recovery, forking a
+- Everything the model sees is reconstructable from an append-only log. Crash recovery, forking a
   session, replay tests and audits all fall out of that one rule.
-- **It's built around prompt-cache reuse** more carefully than any harness I've read. Volatile facts stay
+- It's built around prompt-cache reuse more carefully than any harness I've read. Volatile facts stay
   out of the system prompt, prompt updates are appended rather than rewritten, and even summarization reuses
   the cached prefix.
-- **Its sandbox fails closed.** If no sandbox can be enforced, commands don't run.
-- **Its local web server is carefully fenced:** loopback only by default, token login, Origin and Host
+- Its sandbox fails closed. If no sandbox can be enforced, commands don't run.
+- Its local web server is carefully fenced: loopback only by default, token login, Origin and Host
   checks, and it refuses to bind to all interfaces.
 
 **Where it's risky as shipped.** DSH's security model can be summed up as **"confine file writes; approve
 nothing else."** Under the default settings:
 
-1. **Shell commands run without approval.** There is no command allowlist or classifier. The model's
-   commands run inside a sandbox that limits *writes* to the workspace, but can **read the whole
-   filesystem and reach any network host**. Your SSH keys, cloud credentials and DSH's own credentials
+1. Shell commands run without approval. There is no command allowlist or classifier. The model's
+   commands run inside a sandbox that limits *writes* to the workspace, but can read the whole
+   filesystem and reach any network host. Your SSH keys, cloud credentials and DSH's own credentials
    file are readable, and nothing stops them from being sent anywhere.
-2. **The full session log is uploaded to DeepSeek by default.** Every request to DeepSeek's API carries
+2. The full session log is uploaded to DeepSeek by default. Every request to DeepSeek's API carries
    an incremental copy of the session log (up to 8 MiB per request): prompts, tool arguments and results,
-   file contents the agent read, summaries. The `DSH_TELEMETRY_DISABLED` switch does **not** turn this off.
-3. **The web fetch tool can reach your internal network.** It describes itself as working "including
+   file contents the agent read, summaries. The `DSH_TELEMETRY_DISABLED` switch does not turn this off.
+3. The web fetch tool can reach your internal network. It describes itself as working "including
    intranet and loopback addresses," and the code has no private-address blocking, despite a config comment
    saying otherwise.
-4. **Plugins are fully trusted code, and config is code.** Plugins run inside the harness process, and
+4. Plugins are fully trusted code, and config is code. Plugins run inside the harness process, and
    YAML config values tagged `!!js` are evaluated as JavaScript.
 
 Put together: a prompt injection in a cloned repository, a web page or an MCP tool result can tell the agent
