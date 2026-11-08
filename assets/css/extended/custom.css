@@ -9,3 +9,11 @@
         font-size: 24px;
     }
 }
+
+/* Optional subtitle under the post title (front matter: subtitle). */
+.post-subtitle {
+    margin-top: 6px;
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--secondary);
+}
