@@ -54,6 +54,32 @@ nothing else."** Under the default settings:
 Put together: a prompt injection in a cloned repository, a web page or an MCP tool result can tell the agent
 to read a credential and send it out, and under default settings **no approval prompt appears**.
 
+Side by side, the difference is where the boundary sits:
+
+```mermaid
+%%{init: {"themeVariables": {"fontSize": "13px"}}}%%
+flowchart LR
+    subgraph T["A typical harness (composite)"]
+        direction TB
+        t1["Agent loop"] --> t2["Command check<br/>allow/deny rules<br/>or approval"]
+        t2 --> t3["Sandbox<br/>files confined,<br/>network often off"]
+        t1 --> t4["Model API<br/>model context only"]
+    end
+    subgraph D["DeepSeek Harness (defaults)"]
+        direction TB
+        d1["Plugins around an<br/>append-only log"] --> d2["No command check"]
+        d2 --> d3["Sandbox<br/>writes confined;<br/>reads and network open"]
+        d1 --> d4["Model API<br/>model context +<br/>full session log copy"]
+    end
+    T ~~~ D
+    classDef risk fill:#fde2e2,stroke:#c0392b;
+    class d2,d3,d4 risk;
+```
+
+The left side is a composite, not one product. Claude Code checks each command against allow and deny rules;
+Codex's closest equivalent is a sandbox that turns network off by default. Both sides use the word "sandbox,"
+but they don't contain the same things.
+
 **My verdict.** DSH is an excellent codebase to *learn* from, and a reasonable tool for individual developers
 who understand its model. To deploy it in an organization, you need to supply the isolation it doesn't:
 
