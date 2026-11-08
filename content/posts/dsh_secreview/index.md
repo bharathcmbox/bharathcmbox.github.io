@@ -80,6 +80,10 @@ The left side is a composite, not one product. Claude Code checks each command a
 Codex's closest equivalent is a sandbox that turns network off by default. Both sides use the word "sandbox,"
 but they don't contain the same things.
 
+**[Step through the attack yourself →](/sims/dsh-safeagents/)** An interactive simulator runs the same
+malicious-repo attack against a typical harness, DSH with default settings, DSH with Hugging Face SafeAgents,
+and a hardened DSH deployment, one step at a time.
+
 **My verdict.** DSH is an excellent codebase to *learn* from, and a reasonable tool for individual developers
 who understand its model. To deploy it in an organization, you need to supply the isolation it doesn't:
 

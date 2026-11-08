@@ -1,0 +1,22 @@
+{{- define "main" }}
+{{- /* Interactive simulator page. Its CSS and JS live in the page bundle, so a
+       draft simulator publishes nothing until the page itself is published. */ -}}
+{{- $css := .Resources.Get "sim.css" | minify | fingerprint }}
+{{- $js := .Resources.Get "sim.js" | minify | fingerprint }}
+<link rel="stylesheet" href="{{ $css.RelPermalink }}" integrity="{{ $css.Data.Integrity }}">
+<article class="post-single sim-page">
+  <header class="post-header">
+    <h1 class="post-title">{{ .Title }}</h1>
+    {{- with .Description }}
+    <div class="post-description">{{ . }}</div>
+    {{- end }}
+  </header>
+  <div class="post-content">
+    {{ .Content }}
+    <div id="sim" class="sim" aria-label="Simulator">
+      <noscript>This simulator needs JavaScript.</noscript>
+    </div>
+  </div>
+</article>
+<script src="{{ $js.RelPermalink }}" integrity="{{ $js.Data.Integrity }}" defer></script>
+{{- end }}
