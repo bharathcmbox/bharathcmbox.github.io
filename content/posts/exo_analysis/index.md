@@ -1,7 +1,7 @@
 ---
 title: "Exo, explained for security leaders: agents that rewrite their own harness"
 date: 2026-11-07
-draft: false
+draft: true
 description: "A plain-language read of the Exo paper (Krentsel, Ratnasamy, Stoica, Casado, Goyal, 2026) for cybersecurity executives: what a harness is, how an agent edits its own, what that means when many agents share one, and the questions to ask before you allow it."
 tags: [ai-agents, security, research, agent-harness, governance]
 ---
