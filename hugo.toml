@@ -17,3 +17,7 @@ theme = 'PaperMod'
     name = 'Tags'
     url = '/tags/'
     weight = 2
+
+# Allow {.class} attributes on Markdown blocks (used for compact tables).
+[markup.goldmark.parser.attribute]
+  block = true

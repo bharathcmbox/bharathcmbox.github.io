@@ -17,3 +17,23 @@
     font-weight: 500;
     color: var(--secondary);
 }
+
+/* Wide tables that should fit the page instead of scrolling: add {.compact-table}
+   on the line after the table. Smaller text, and long code tokens may wrap. */
+.post-content table.compact-table {
+    display: table;
+    table-layout: auto;
+    font-size: 14px;
+    word-break: normal;
+}
+
+.post-content table.compact-table th,
+.post-content table.compact-table td {
+    min-width: 0;
+    padding: 5px 8px;
+}
+
+.post-content table.compact-table code {
+    font-size: 0.9em;
+    overflow-wrap: anywhere;
+}

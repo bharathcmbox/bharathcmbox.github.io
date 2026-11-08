@@ -49,6 +49,7 @@ The details matter for security, so here they are for Anthropic's four memory su
 | **Memory tool (API)** | Your application, client-side | Claude is told to view its memory directory before anything else, then reads files through tool calls | You implement storage; docs require path-traversal checks |
 | **Managed Agents memory stores** | Anthropic-hosted, scoped to a workspace | Mounted at `/mnt/memory/<slug>/`; a description of each mount goes in the system prompt | `read_only` mounts, immutable versions for 30 days, a redaction endpoint |
 | **Managed Agents dreams** | Anthropic-hosted | `POST /v1/dreams` reads one store plus 1–100 session transcripts and writes a **new** output store | Input store never modified; you choose whether to attach the output |
+{.compact-table}
 
 Two things stand out. First, in every surface, memory content ends up as **text in the model's context
 with no built-in marker of where it came from**. Second, only one surface's docs warn about the security
