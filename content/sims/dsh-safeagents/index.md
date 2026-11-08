@@ -1,5 +1,5 @@
 ---
-title: "Simulator: one attack, four agent setups"
+title: "An Illustration: One attack, four different agent setups"
 description: "Step through the same prompt-injection attack on a typical harness, DeepSeek Harness with default settings, DSH with Hugging Face SafeAgents, and a hardened DSH deployment."
 date: 2026-11-08
 draft: true

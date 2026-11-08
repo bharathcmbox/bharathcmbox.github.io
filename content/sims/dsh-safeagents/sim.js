@@ -330,6 +330,14 @@
       tabButtons[setup.id].addEventListener('click', () => { state.setup = setup.id; render(); });
     }
 
+    // Navigation sits above the diagram so the buttons never move as step text changes length.
+    const nav = h('div', { class: 'sim-nav' }, root);
+    const back = h('button', { type: 'button', class: 'sim-btn', text: '← Back' }, nav);
+    const counter = h('span', { class: 'sim-counter' }, nav);
+    const next = h('button', { type: 'button', class: 'sim-btn sim-btn-primary', text: 'Next →' }, nav);
+    back.addEventListener('click', () => go(-1));
+    next.addEventListener('click', () => go(1));
+
     const diagram = buildDiagram();
     // On narrow screens the diagram scrolls sideways instead of shrinking past legibility.
     h('div', { class: 'sim-diagram-wrap' }, root).appendChild(diagram.svg);
@@ -343,13 +351,6 @@
     });
     const stepTitle = h('h3', { class: 'sim-step-title' }, panel);
     const body = h('div', { class: 'sim-body' }, panel);
-
-    const nav = h('div', { class: 'sim-nav' }, root);
-    const back = h('button', { type: 'button', class: 'sim-btn', text: '← Back' }, nav);
-    const counter = h('span', { class: 'sim-counter' }, nav);
-    const next = h('button', { type: 'button', class: 'sim-btn sim-btn-primary', text: 'Next →' }, nav);
-    back.addEventListener('click', () => go(-1));
-    next.addEventListener('click', () => go(1));
 
     const footnote = h('p', { class: 'sim-footnote' }, root);
     richText(footnote, '* I couldn\'t run SafeAgents\' pattern detectors (atif-scan) for this page. They read the text of the call, and `bash scripts/setup.sh` gives them little to match, but a different payload might be caught. The host check and the judge rule are read directly from SafeAgents\' code.');
