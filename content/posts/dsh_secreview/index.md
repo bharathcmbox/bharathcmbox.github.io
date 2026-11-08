@@ -519,6 +519,55 @@ Test this against your DSH version before relying on it. Plugin ids and config k
 8. **Monitor:** watch `approval/*` and `sandbox/mode` events in session logs, and rotate keys after any suspected
    injection.
 
+## Adding a call guard: Hugging Face SafeAgents
+
+DSH's biggest missing piece is a check on each command before it runs. Hugging Face's
+[SafeAgents](https://github.com/huggingface/safeagents) supplies one from the outside, and it ships a setup
+guide for DSH. I read its code (commit `0de8e22`, November 5, 2026), not just the README; I didn't run it.
+
+It's a small local proxy that sits between the harness and the model API. It inspects each tool call in the
+model's reply before DSH sees it, and replaces a blocked call with a text notice, so DSH never runs it.
+Each call gets three checks:
+
+1. A call is blocked if it uses a tool the request didn't declare, or if its arguments mention a host
+   that appears nowhere in the conversation. The model's own earlier turns don't count as a source.
+2. Pattern detectors from its companion project, atif-scan, look for things like reading
+   `/proc/1/environ` or a Kubernetes service-account token. Serious findings are blocked; milder ones mark the
+   call as suspicious.
+3. An optional judge model decides suspicious calls. It sees only what the user wrote, the call and the
+   findings, never the agent's reasoning, and it can add a block but never lift one.
+
+That's a well-designed guard, and it fills the right gap. With DSH specifically, it's weaker than it looks,
+for three reasons:
+
+- **DSH's session log weakens the host check.** The check ignores the model's own turns, so the model can't
+  vouch for a host it invented. But it searches every other field of the request, and DSH's `dsh_session_log`
+  field carries the full session, assistant turns included (`src/safeagents/policy.py`). With DSH, a host the
+  model wrote earlier counts as "in the conversation." SafeAgents also forwards that field to DeepSeek unchanged,
+  so it's no substitute for turning the upload off.
+- **The judge reads DSH's instruction files as the user's request.** It builds "what the user asked" from
+  user-role text, and DSH sends `AGENTS.md` and `CLAUDE.md` as a user message. An injected instruction file that
+  says "run the setup step" looks to the judge like the user's own task. More generally, when an injection
+  names the attacker's host, that host *is* in the conversation, so the host check passes it.
+- **Its DSH guide has a configuration trap.** It says you can set `DEEPSEEK_BASE_URL` in a project or home
+  `.env` file. Current DSH refuses that variable from any `.env` file; it only accepts it from the process
+  environment or a profile patch (`packages/boot/app-boot/src/index.ts:150`). The guide was tested against an older
+  DSH version. Follow it today and DSH may talk to DeepSeek directly, without the proxy. Use the profile patch
+  from the guide, and confirm that calls appear in the SafeAgents monitor.
+
+Two more limits apply to any harness. The detectors match the text of a call, so writing a script in one call and
+running it in the next leaves nothing to match. And several defaults lean open: the README suggests starting in
+log-only mode, judge errors allow the call unless you pass `--judge-fail-closed`, and `localhost` is on the default
+list of allowed hosts. Out-of-process subagents (the Claude Code, Codex and ACP backends) don't go through the
+proxy at all.
+
+**Where it belongs.** After the VM and egress allowlist, and after the profile patch, not instead of them. Once
+the network layer blocks exfiltration, SafeAgents adds what the network can't see: blocking destructive local
+commands and credential reads before they run, a journal of blocked and suspicious calls, and a live view of what
+the agent is trying to do. Run it in blocking mode with `--judge-fail-closed`, and add your own detectors for
+patterns specific to your environment. Its `scrub` command is also worth using on DSH session logs before you share
+them with anyone.
+
 # What I'd take away
 
 **Ideas worth stealing for any harness:**
